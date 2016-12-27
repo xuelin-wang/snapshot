@@ -7,6 +7,7 @@
                  [org.clojure/clojure "1.9.0-alpha14"]
                  [com.mchange/c3p0 "0.9.5.2"]
                  [org.mariadb.jdbc/mariadb-java-client "1.5.5"]
+                 [org.clojure/core.async "0.2.395"]
                  [org.clojure/java.jdbc "0.7.0-alpha1"]
                  [org.clojure/test.check "0.9.0"]]
 

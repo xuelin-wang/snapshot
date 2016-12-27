@@ -2,6 +2,7 @@
   (:require
       [clojure.java.jdbc :as j]
       [xl.diff :as diff]
+      [xl.io]
       [xl.snapshot.db :as db])
   (:gen-class))
 
