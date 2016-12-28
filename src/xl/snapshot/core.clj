@@ -31,6 +31,7 @@
         ;        rows (j/query conn ["select * from t3 where c3_0_i > ?" 1000000] {:as-arrays? true})
         out-path1 "/Users/xuelin/s1.txt"
         out-path2 "/Users/xuelin/s2.txt"
+        output-diff-only? true
         table-name "t3"
         colnames ["c3_1_f" "c3_0_i"]
         ordered-cols  (into [] (map #(keyword %) colnames))]
@@ -47,7 +48,7 @@
     (db/store-table-snapshot out-path1 (db/db-conn) table-name colnames nil)
     (update-test-t3 conn)
     (db/store-table-snapshot out-path2 (db/db-conn) table-name colnames nil)
-    (let [ch (db/diff-files table-name ordered-cols true 0.0000001 out-path1 out-path2 false)
+    (let [ch (db/diff-files table-name ordered-cols true 0.0000001 out-path1 out-path2 output-diff-only?)
           result-ch (async/into [] ch)
           result (async/<!! result-ch)]
       (println result))))
