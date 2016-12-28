@@ -1,6 +1,7 @@
 (ns xl.snapshot.core
   (:require
       [clojure.java.jdbc :as j]
+      [clojure.core.async :as async]
       [xl.diff :as diff]
       [xl.io]
       [xl.snapshot.db :as db])
@@ -28,24 +29,34 @@
         metadata (j/result-set-seq (first metadatas))
         first-col (first metadata)
         ;        rows (j/query conn ["select * from t3 where c3_0_i > ?" 1000000] {:as-arrays? true})
-        out-file1 "/Users/xuelin/t3.txt"
-        out-file2 "/Users/xuelin/t3a.txt"]
+        out-path1 "/Users/xuelin/s1.txt"
+        out-path2 "/Users/xuelin/s2.txt"
+        table-name "t3"
+        colnames ["c3_1_f" "c3_0_i"]
+        ordered-cols  (into [] (map #(keyword %) colnames))]
     ;        rows2 [{:c3_0_i (int 3), :c3_1_f (float 3.15), :c3_2_f nil}
     ;               {:c3_0_i (int 4), :c3_1_f (float 4.5567), :c3_2_f (float 1800.0)})
     ;        diff (db/diff-rows metadata rows rows2 diff/default-dbl-tolerate)]
 
-    (println metadata)
-    (println (:column_name first-col))
-    (println (:table_name first-col))
-    (println (:type_name first-col))
-    (println (:is_nullable first-col))
-    (spit out-file1 (snapshot-test-t3 conn))
+;    (println metadata)
+;    (println (:column_name first-col))
+;    (println (:table_name first-col))
+;    (println (:type_name first-col))
+;    (println (:is_nullable first-col))
+;    (spit out-file1 (snapshot-test-t3 conn))
+    (db/store-table-snapshot out-path1 (db/db-conn) table-name colnames nil)
     (update-test-t3 conn)
-    (spit out-file2 (snapshot-test-t3 conn))
-    (let [rows1 (read-string (slurp out-file1))
-          rows2 (read-string (slurp out-file2))
-          diff (db/diff-rows metadata (rest rows1) (rest rows2) [:c3_0_i :c3_1_f] true diff/default-dbl-tolerate)]
-      (println diff))))
+    (db/store-table-snapshot out-path2 (db/db-conn) table-name colnames nil)
+    (let [ch (db/diff-files table-name ordered-cols true 0.0000001 out-path1 out-path2 false)
+          result-ch (async/into [] ch)
+          result (async/<!! result-ch)]
+      (println result))))
+
+;    (spit out-file2 (snapshot-test-t3 conn))))
+;    (let [rows1 (read-string (slurp out-file1))
+;          rows2 (read-string (slurp out-file2))
+;          diff (db/diff-rows metadata (rest rows1) (rest rows2) [:c3_0_i :c3_1_f] true diff/default-dbl-tolerate)
+;      (println diff))))
 
 ;      (println diff)
-      ;(create-test-t3 conn 1000 1000 1000)
+;(create-test-t3 conn 1000 1000 1000)

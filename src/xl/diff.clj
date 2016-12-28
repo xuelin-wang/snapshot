@@ -1,4 +1,5 @@
-(ns xl.diff)
+(ns xl.diff
+  (:require [clojure.core.async :as async]))
 
 (def default-dbl-tolerate 0.0000001)
 
@@ -25,20 +26,28 @@
 (def default-nilable-comp
   (comp-nilable default-comp))
 
-(defn diff-list [list1 list2 comp-item]
-    (let [sorted-l1 (sort comp-item list1)
-          sorted-l2 (sort comp-item list2)]
+(defn diff [chan1 chan2 comp-item output-diff-only?]
+  (let [ch (async/chan)
+        process
+        (fn []
+          (let [new-item
+                (fn [item ch chan-done]
+                  (if (or (some? item) chan-done) item (async/<!! ch)))]
 
-        (loop [result [] l1 sorted-l1 l2 sorted-l2]
-            (cond
-                (empty? l1) (concat result (map (fn [item] [:right item]) l2))
-                (empty? l2) (concat result (map (fn [item] [:left item]) l1))
-                :else
-                  (let [
-                        first1 (first l1)
-                        first2 (first l2)
-                        check-first (comp-item first1 first2)]
-                    (cond
-                      (zero? check-first) (recur (conj result [:both first1]) (rest l1) (rest l2))
-                      (pos? check-first) (recur (conj result [:right first2]) l1 (rest l2))
-                      :else (recur (conj result [:left first1]) (rest l1) l2)))))))
+            (loop [item1 nil item2 nil chan1-done false chan2-done false]
+              (let [new-item1 (new-item item1 chan1 chan1-done)
+                    new-item2 (new-item item2 chan2 chan2-done)]
+                (cond
+                  (and (nil? new-item1) (nil? new-item2)) (async/close! ch)
+                  (nil? new-item1) (do (async/>!! ch [:right new-item2]) (recur nil nil true false))
+                  (nil? new-item2) (do (async/>!! ch [:left new-item1]) (recur nil nil false true))
+                  :else (let [check (comp-item new-item1 new-item2)]
+                          (cond
+                            (zero? check) (do (if-not output-diff-only? (async/>!! ch [:both new-item1]))
+                                            (recur nil nil false false))
+                            (pos? check) (do (async/>!! ch [:right new-item2])
+                                           (recur new-item1 nil false false))
+                            :else (do (async/>!! ch [:left new-item1])
+                                    (recur nil new-item2 false false)))))))))]
+    (async/thread (process))
+    ch))

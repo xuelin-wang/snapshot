@@ -1,9 +1,12 @@
 (ns xl.snapshot.db
-  (:import com.mchange.v2.c3p0.ComboPooledDataSource)
-
+  (:import (com.mchange.v2.c3p0 ComboPooledDataSource)
+           (java.io Writer))
   (:require
       [clojure.java.jdbc :as j]
       [clojure.string :as str]
+      [clojure.java.io :as io]
+      [clojure.core.async :as async]
+      [clojure.core.async.lab :as asynclab]
       [xl.diff :as diff]))
 
 (def db-spec
@@ -70,11 +73,41 @@
               (int 0)
               ordered-cols))))
 
-(defn diff-rows [table-metadata rows1 rows2 ordered-cols is-row-array? dbl-tolerate]
+(defn diff-chans [table-metadata ordered-cols is-row-array? dbl-tolerate chan1 chan2 output-diff-only?]
     (let [row-comp (get-row-comp table-metadata ordered-cols is-row-array? dbl-tolerate)]
-      (diff/diff-list rows1 rows2 row-comp)))
+      (diff/diff chan1 chan2 row-comp output-diff-only?)))
+
+(defn diff-rows [table-metadata ordered-cols is-row-array? dbl-tolerate rows1 rows2 sorted? output-diff-only?]
+    (let [row-comp (get-row-comp table-metadata ordered-cols is-row-array? dbl-tolerate)
+          sorted-rows1 (if sorted? rows1 (sort row-comp rows1))
+          sorted-rows2 (if sorted? rows2 (sort row-comp rows2))
+          chan1 (asynclab/spool sorted-rows1)
+          chan2 (asynclab/spool sorted-rows2)
+          ch (diff-chans table-metadata ordered-cols is-row-array? dbl-tolerate chan1 chan2 output-diff-only?)
+          result-ch (async/into [] ch)
+          result (async/<!! result-ch)]
+      (do (async/close! result-ch) result)))
+
+(defn diff-files [table-name ordered-cols is-row-array? dbl-tolerate file-path1 file-path2 output-diff-only?]
+  (let [table-metadatas (get-tables-metadata [table-name])
+        table-metadata (j/result-set-seq (first table-metadatas))
+        chan1 (xl.io/read-edn-chan file-path1)
+        chan2 (xl.io/read-edn-chan file-path2)]
+    (diff-chans table-metadata ordered-cols is-row-array? dbl-tolerate chan1 chan2 output-diff-only?)))
 
 (defn load-table-snapshot [conn table-name colnames where-clauses & params]
-  (let [sql (str "select " (str/join "," colnames) " from " table-name (if (str/blank? where-clauses) "" (str " where "  where-clauses)))
+  (let [cols-str (str/join "," colnames)
+        sql (str "select " cols-str " from " table-name
+                 (if (str/blank? where-clauses) "" (str " where "  where-clauses))
+                 " order by " cols-str)
         query-params (into [] (concat [sql] params))]
     (j/query conn query-params {:as-arrays? true})))
+
+(defn store-table-snapshot [file-path conn table-name colnames where-clauses & params]
+  (let [cols-str (str/join "," colnames)
+        sql (str "select " cols-str " from " table-name
+                 (if (str/blank? where-clauses) "" (str " where "  where-clauses))
+                 " order by " cols-str)
+        query-params (into [] (concat [sql] params))]
+    (with-open [^Writer writer (io/writer file-path)]
+      (j/query conn query-params {:as-arrays? true :row-fn #(.write writer (pr-str %))}))))
